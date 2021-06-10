@@ -1,0 +1,117 @@
+type: edu
+custom_name: What the File?
+files:
+- name: tests.py
+  visible: false
+  text: |
+    import ast
+    import re
+
+    import requests
+    from hstest.check_result import CheckResult
+    from hstest.stage_test import StageTest
+    from hstest.test_case import TestCase
+
+
+    class WebScraperTest(StageTest):
+        def generate(self):
+            return [TestCase(stdin="https://github.blog/notexisting",
+                             check_function=self.check_not_200,
+                             attach="https://github.blog/notexisting", time_limit=0),
+                    TestCase(stdin="http://httpstat.us/403",
+                             check_function=self.check_not_200,
+                             attach="http://httpstat.us/403", time_limit=0),
+                    TestCase(
+                        stdin='http://www.pythonchallenge.com/pc/def/0.html',
+                        check_function=self.check_200,
+                        attach="http://www.pythonchallenge.com/pc/def/0.html", time_limit=0)]
+
+        def check_200(self, reply, attach):
+            try:
+                test_content = requests.get(attach).content
+            except requests.exceptions.SSLError:
+                return CheckResult.wrong("An error occurred when tests tried to connect to the Internet page.\n"
+                                         "Please, try again.")
+            try:
+                with open("source.html", "rb") as f:
+                    file_content = f.read()
+                    if file_content == test_content:
+                        return CheckResult.correct() if "Content saved" in reply and "The URL returned" not in reply \
+                            else CheckResult.wrong("Did you notify the user you've saved the content?")
+                    else:
+                        return CheckResult.wrong("The content of the file is not correct!")
+            except FileNotFoundError:
+                return CheckResult.wrong("Couldn't find the source.html file")
+
+        def check_not_200(self, reply, attach):
+            try:
+                status_code = requests.get(attach).status_code
+            except requests.exceptions.SSLError:
+                return CheckResult.wrong("An error occurred when tests tried to connect to the Internet page.\n"
+                                         "Please, try again.")
+            if f"The URL returned" in reply and "Content saved" not in reply:
+                if str(status_code) in reply:
+                    return CheckResult.correct()
+                else:
+                    return CheckResult.wrong("The returned error doesn't match with the output message.")
+            else:
+                return CheckResult.wrong("The link returned an error, but your program didn't.")
+
+
+    if __name__ == '__main__':
+        WebScraperTest().run_tests()
+  learner_created: false
+- name: WhattheFile.py
+  visible: true
+  learner_created: true
+- name: WannaTalktotheInternet.py
+  visible: true
+  learner_created: true
+- name: TheBeautifuSoupIngredients.py
+  visible: true
+  text: |
+    import requests
+    import json
+    from bs4 import BeautifulSoup
+
+    print("Input the URL:")
+    link = input()
+    # link = "https://www.imdb.com/title/tt0080684/"
+    r = requests.get(link, headers={'Accept-Language': 'en-US,en;q=0.5'})
+
+    count = 0
+    if r.status_code == 200:
+        soup = BeautifulSoup(r.content, 'html.parser')
+        count += 1
+        a = soup.find_all('span')
+        desc = ""
+        for l in a:
+            if len(l.text) > 1:
+                if l.get('data-testid') == "plot-xs":
+                    desc = l.text
+                    break
+                # print(f'((A) {count}), {l}')
+                # print(f'((B) {count}), {l.role}')
+            count += 1
+
+        if len(desc) == 0:
+            print("Invalid movie page!")
+            exit(0)
+
+        title = soup.title.text
+        d = {"title": title, "description": desc}
+        print(d)
+  learner_created: true
+- name: source.html
+  visible: true
+  learner_created: true
+feedback_link: https://hyperskill.org/projects/145/stages/783/implement#comment
+status: Failed
+feedback:
+  message: |-
+    Error in test #1
+
+    Cannot decide which file to run out of the following: "WannaTalktotheInternet.py", "WhattheFile.py"
+    They all have "if __name__ == '__main__'". Leave one file with this line.
+  time: Wed, 09 Jun 2021 10:31:53 UTC
+record: -1

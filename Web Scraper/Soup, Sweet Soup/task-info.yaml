@@ -1,0 +1,202 @@
+type: edu
+files:
+- name: tests.py
+  visible: false
+  text: |
+    import glob
+    import random
+    import re
+    import shutil
+    import string
+
+    from hstest import *
+
+    import requests
+    from furl import furl
+    from bs4 import BeautifulSoup
+    import os
+
+
+    class NatureScraper:
+        def tag_leading_to_view_article(self, tag):
+            return tag.has_attr("data-track-action") and tag["data-track-action"] == "view article"
+
+        def tag_containing_atricle_type(self, tag):
+            return tag.name == "span" and tag.has_attr("data-test") and tag["data-test"] == "article.type"
+
+        def tag_containing_article_title(self, tag):
+            return tag.name == "h1" and ("article" in tag["class"][0] and "title" in tag["class"][0])
+
+        def tag_containing_article_body(self, tag):
+            return tag.name == "div" and ("article" in tag.get("class", [""])[0] and "body" in tag.get("class", [""])[0])
+
+        def get_article_links_of_type(self, url, article_type="News"):
+            origin_url = furl(url).origin
+            try:
+                articles_resp = requests.get(url)
+            except requests.exceptions.ConnectionError:
+                raise WrongAnswer(f"ConnectionError occurred when tests tried to reach the page \'{url}\'.\n"
+                                  f"Please try running tests again.")
+            soup = BeautifulSoup(articles_resp.text, "html.parser")
+            articles = soup.find_all(self.tag_containing_atricle_type)
+            articles = list(filter(lambda x: x.text.strip() == article_type, articles))
+            return [furl(origin_url).add(path=x.find_parent("article").find(self.tag_leading_to_view_article).get("href")).url \
+                             for x in articles]
+
+        def get_article_title_and_content(self, url):
+            article = requests.get(url)
+            soup = BeautifulSoup(article.text, "html.parser")
+            title = soup.find(self.tag_containing_article_title)
+            content = soup.find(self.tag_containing_article_body)
+            if title and content:
+                return title.text.strip(), content.text.strip()
+
+
+    class WebScraperTest(StageTest):
+        def generate(self):
+            for name in os.listdir():
+                if os.path.isdir(name) and name.startswith("Page_"):
+                    shutil.rmtree(name)
+
+            return [TestCase(stdin="3\nResearch Highlight", attach=(3, "Research Highlight"), time_limit=0),
+                    TestCase(stdin="1\nNews & Views", attach=(1, "News & Views"), time_limit=0),
+                    TestCase(stdin="2\nNews Feature", attach=(2, "News Feature"), time_limit=0)]
+
+        def check(self, reply, attach=None):
+            n_pages, article_type = attach
+            scraper = NatureScraper()
+            for i in range(1, n_pages + 1):
+                dirname = f"Page_{i}"
+                dirname = os.path.abspath(dirname)
+                if not os.path.exists(dirname):
+                    return CheckResult.wrong(f"Impossible to find directory {dirname}")
+                os.chdir(dirname)
+                txt_files = glob.glob("*.txt")
+                url = furl("https://www.nature.com/nature/articles").add({"page": str(i)})
+                article_links = scraper.get_article_links_of_type(url, article_type=article_type)
+                if len(txt_files) != len(article_links):
+                    return CheckResult.wrong("A wrong number of files with articles was found in the directory {0}. \n"
+                                             "{1} files were found, {2} files were expected.".format(dirname,
+                                                                                                     len(txt_files),
+                                                                                                     len(article_links)))
+                if article_links:
+                    random_val = random.randint(0, len(article_links)-1)
+                    title, content = scraper.get_article_title_and_content(article_links[random_val])
+                    content = content.strip()
+                    title = f"{title.translate(str.maketrans('', '', string.punctuation)).replace(' ', '_')}.txt"
+                    title = os.path.abspath(title)
+                    if not os.path.exists(title):
+                        return CheckResult.wrong("A file with the title {0} was expected, but was not found.".format(title))
+                    with open(title, "rb") as f:
+                        try:
+                            file_content = f.read().decode('utf-8').strip()
+                        except UnicodeDecodeError:
+                            return CheckResult.wrong("An error occurred when tests tried to read the file \"{0}\"\n"
+                                                     "Please, make sure you save your file in binary format \n"
+                                                     "and encode the saved data using utf-8 encoding.".format(title))
+
+                    file_content = re.sub('[\r\n]', '', file_content)
+                    content = re.sub('[\r\n]', '', content)
+                    if file_content != content:
+                        return CheckResult.wrong("Some of the files do not contain the expected article's body. \n"
+                                                 "The tests expected the following article:\n"
+                                                 f"\"{content}\"\n"
+                                                 f"However, the following text was found in the file {title}:\n"
+                                                 f"\"{file_content}\"")
+                os.chdir("..")
+                try:
+                    shutil.rmtree(dirname)
+                except OSError as e:
+                    print(f"The following error occurred when the tests tried to remove directory {dirname}:\n"
+                          f"{e}\n"
+                          f"If you can, please, make it possible to remove the directory.")
+            return CheckResult.correct()
+
+
+    if __name__ == '__main__':
+        WebScraperTest().run_tests()
+  learner_created: false
+- name: source.html
+  visible: true
+  text: |
+    <html>
+    <head>
+      <title>warming up</title>
+      <link rel="stylesheet" type="text/css" href="../style.css">
+    </head>
+    <body>
+    <center>
+    <img src="calc.jpg"><br>
+    <font color="gold">
+    <p>Hint: try to change the URL address.
+    </body>
+    </html>
+  learner_created: true
+- name: TheSoupIsReal.py
+  visible: true
+  text: "import requests\nimport string\nfrom bs4 import BeautifulSoup\n\nLINK_BASE\
+    \ = \"https://www.nature.com\"\nLINK = LINK_BASE + \"/nature/articles\"\n# LINK\
+    \ = \"https://www.nature.com/articles/d41586-021-01540-8\"\n\n\ndef prepare_string(s):\n\
+    \    out = s.translate(str.maketrans(' ', '_', string.punctuation))\n    return\
+    \ out\n\ndef save_article(title, descr):\n    new_title = prepare_string(title)\
+    \ + \".txt\"\n    with open(new_title, \"wb\") as file:\n        file.write(bytes(descr,\
+    \ encoding='utf-8'))\n\n\ndef get_art_details(href):\n    href = \"https://www.nature.com/articles/d41586-021-01540-8\"\
+    \n    r = requests.get(href)\n    soup = BeautifulSoup(r.content, 'html.parser')\n\
+    \    # print(soup.prettify())\n    div = soup.find(\"div\", class_=\"c-article-body\
+    \ u-clearfix\")\n    details = \"\"\n    for d in div:\n        if d == \"\\n\"\
+    :\n            continue\n        details += d.text\n\n    return details\n\ndef\
+    \ nature():\n    r = requests.get(LINK)\n\n    count = 0\n    if r.status_code\
+    \ == 200:\n        soup = BeautifulSoup(r.content, 'html.parser')\n\n        count\
+    \ += 1\n        a = soup.find_all(\"article\")\n        for article in a:\n  \
+    \          if len(article.text) > 1:\n                tipo = (article.find(attrs={\"\
+    data-test\" : \"article.type\"}).text).strip()\n                if tipo != \"\
+    News\":\n                    continue\n                art_detail = article.find(\"\
+    a\", attrs={\"data-track-action\": \"view article\"})\n                title =\
+    \ art_detail.text.strip()\n                href = LINK_BASE + art_detail.get(\"\
+    href\")\n                descr = get_art_details(href)\n                save_article(title,\
+    \ descr)\n                count += 1\n\n\nif __name__ == \"__main__\":\n    nature()\n\
+    \n\n\"\"\" VERSION 1\nrequest = get(\"https://www.nature.com/nature/articles\"\
+    )\nsoup = BeautifulSoup(request.content, 'html.parser')\nsaved_list = []\n\nfor\
+    \ x in soup.find_all('article'):\n    news_type = x.find('span', {'data-test':\
+    \ 'article.type'}).text\n    \n    if news_type == '\\nNews\\n':\n        topic\
+    \ = x.find('a', {'data-track-action': \"view article\"})\n        name = topic.text.strip('\
+    \ ').translate(str.maketrans(\"\", \"\", punctuation)).replace(' ', '_') + '.txt'\n\
+    \        saved_list.append(name)\n        \n        article = get(\"https://www.nature.com\"\
+    \ + topic.get('href'))\n        s = BeautifulSoup(article.content, 'html.parser')\n\
+    \n        file = open(name, 'w')\n        file.write(s.find('div', {'class': 'c-article-body'}).text)\n\
+    \        file.close()\n\nprint('Saved articles', saved_list)\n\"\"\"\n\n\"\"\"\
+    \  VERSION 2\ndef get_soup(url):\n    r = requests.get(url, headers={'Accept-Language':\
+    \ 'en-US,en;q=0.5'})\n    return BeautifulSoup(r.content, 'html.parser')\n\n\n\
+    soup = get_soup('https://www.nature.com/nature/articles')\narticles = soup.find_all('article')\n\
+    \nnews_article = list(filter(lambda article: article.find('span', {'class': 'c-meta__type'}).text\
+    \ == 'News', articles))\n\nfor na in news_article:\n    header = na.find('h3')\n\
+    \    article_path = header.a.get('href')\n    heading = header.a.text.strip()\n\
+    \    file_name = heading.translate(str.maketrans(dict.fromkeys(string.punctuation)))\n\
+    \    file_name = file_name.replace(' ', '_')\n\n    article_url = 'https://www.nature.com'\
+    \ + article_path\n    article_soup = get_soup(article_url)\n    article_main =\
+    \ article_soup.find('div', {'class': 'c-article-body u-clearfix'})\n\n    with\
+    \ open(file_name + '.txt', 'wb') as afile:\n        afile.write(article_main.text.encode())\n\
+    \"\"\"\n"
+  learner_created: true
+- name: Page_1/Menacing_‘famine_weed’_grows_more_toxic_as_carbon_levels_soar.txt
+  visible: true
+  learner_created: true
+- name: Page_1/Quantum_keys_dial_up_tamperproof_conference_calls.txt
+  visible: true
+  learner_created: true
+- name: Page_3/A_light_touch_changes_the_strength_of_a_single_atomic_bond.txt
+  visible: true
+  learner_created: true
+- name: Page_3/Poor_harvest_farmers_earn_a_pitiful_fraction_of_the_money_spent_on_food.txt
+  visible: true
+  learner_created: true
+- name: Page_3/A_grey_whale_makes_an_epic_swim_into_the_record_books.txt
+  visible: true
+  learner_created: true
+feedback_link: https://hyperskill.org/projects/145/stages/785/implement#comment
+status: Solved
+feedback:
+  message: Well done! You finished the project. Select a new project on <a href="https://hyperskill.org/projects">JetBrains
+    Academy</a> to continue learning.
+  time: Thu, 10 Jun 2021 10:25:55 UTC
+record: -1
